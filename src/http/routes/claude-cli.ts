@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
+import { requireAuthenticatedLocalClient } from '../../auth/local-client.js'
 import { GatewayError } from '../../errors.js'
 import type { ClaudeCliEndpoint } from '../../upstream/claude-cli-client.js'
 import { ClaudeCliGateway } from '../../claude-cli/gateway.js'
@@ -34,6 +35,11 @@ function registerClaudeCliGet(
   app.get(path, async c => {
     const request = c.req.raw
     const localClientId = requireLocalClientId(request, options, path)
+    requireAuthenticatedLocalClient({
+      store: requireStore(options.store),
+      request,
+      localClientId,
+    })
     const poolId = request.headers.get('x-claude-mgr-pool-id') ?? undefined
     const gateway =
       options.claudeCliGateway ??

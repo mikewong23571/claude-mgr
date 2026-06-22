@@ -8,6 +8,7 @@ import type { SqliteStore } from '../storage/sqlite-store.js'
 import { errorResponse, notFoundResponse } from './responses.js'
 import { registerAdminRoutes } from './routes/admin.js'
 import { registerApiProxyRoutes } from './routes/api-proxy.js'
+import { registerAuthRoutes } from './routes/auth.js'
 import { registerClaudeCliRoutes } from './routes/claude-cli.js'
 import { registerHealthRoutes } from './routes/health.js'
 import { registerMessagesRoutes } from './routes/messages.js'
@@ -30,6 +31,7 @@ export function createHonoApp(options: AppOptions): Hono {
   app.notFound(() => notFoundResponse())
 
   registerHealthRoutes(app)
+  registerAuthRoutes(app, options)
   registerOAuthRoutes(app, options)
   registerAdminRoutes(app, options)
   registerClaudeCliRoutes(app, options)

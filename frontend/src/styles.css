@@ -173,9 +173,40 @@ body {
   background: #fafbfc !important;
 }
 
+.copy-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.copy-panel {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.copy-panel-header {
+  justify-content: space-between;
+  width: 100%;
+}
+
 .table-actions {
   justify-content: flex-end;
   width: 100%;
+}
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: #f3f4f7;
+}
+
+.login-panel {
+  width: min(420px, 100%);
+}
+
+.login-title {
+  margin-bottom: var(--space-6);
 }
 
 .ant-card-head-title,

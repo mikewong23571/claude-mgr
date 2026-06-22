@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
+import { requireAuthenticatedLocalClient } from '../../auth/local-client.js'
 import { GatewayError } from '../../errors.js'
 import type { AppOptions } from '../app.js'
-import { json, readJson } from '../responses.js'
+import { json, readJson, requireStore } from '../responses.js'
 
 export function registerMessagesRoutes(app: Hono, options: AppOptions): void {
   app.post('/v1/messages', async c => {
@@ -31,6 +32,29 @@ export function registerMessagesRoutes(app: Hono, options: AppOptions): void {
       undefined
     const body = await readJson(request)
     const stream = body.stream === true
+    try {
+      requireAuthenticatedLocalClient({
+        store: requireStore(options.store),
+        request,
+        localClientId,
+      })
+    } catch (error) {
+      if (error instanceof GatewayError) {
+        const auditStore = options.store
+        const auditPoolId =
+          poolId ?? auditStore?.findLocalClient(localClientId)?.defaultPoolId ?? null
+        options.store?.insertAuditEvent({
+          id: randomUUID(),
+          clientId: localClientId,
+          poolId: auditPoolId,
+          endpoint: '/v1/messages',
+          model: typeof body.model === 'string' ? body.model : null,
+          status: 'error',
+          errorType: error.type,
+        })
+      }
+      throw error
+    }
     options.debugRecorder?.record({
       direction: 'downstream',
       phase: 'request',

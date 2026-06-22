@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { hashSecret } from '../src/auth/secrets.js'
 import { createNodeServer } from '../src/http/server.js'
 import type { FetchLike } from '../src/http/fetch-types.js'
 import { MessagesGateway } from '../src/messages/gateway.js'
@@ -22,6 +23,12 @@ function seedStore(): SqliteStore {
     id: 'client-a',
     name: 'Client A',
     defaultPoolId: 'pool-main',
+  })
+  store.createLocalClientToken({
+    id: 'test-token-client-a',
+    clientId: 'client-a',
+    name: 'Test token',
+    tokenHash: hashSecret('local-dummy-key'),
   })
   store.upsertOAuthToken({
     label: 'token-a',
@@ -95,6 +102,7 @@ describe('Node HTTP server', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': 'local-dummy-key',
         },
         body: JSON.stringify({
           model: 'claude-test',

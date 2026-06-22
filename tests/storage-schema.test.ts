@@ -6,6 +6,10 @@ describe('sqlite schema', () => {
     const schema = sqliteSchema.join('\n')
 
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS claude_accounts')
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS app_users')
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS password_credentials')
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS user_sessions')
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS pending_oauth_logins')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS account_pools')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS account_pool_members')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS local_clients')
@@ -13,6 +17,7 @@ describe('sqlite schema', () => {
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS audit_events')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS quota_snapshots')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS message_session_bindings')
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS local_client_tokens')
   })
 
   it('stores OAuth tokens as plaintext database columns for the local-owner MVP', () => {
@@ -22,6 +27,17 @@ describe('sqlite schema', () => {
     expect(schema).toContain('refresh_token TEXT')
     expect(schema).not.toContain('access_token_ciphertext')
     expect(schema).not.toContain('refresh_token_ciphertext')
+  })
+
+  it('stores local passwords, sessions, and client secrets as hashes', () => {
+    const schema = sqliteSchema.join('\n')
+
+    expect(schema).toContain('password_hash TEXT NOT NULL')
+    expect(schema).toContain('session_hash TEXT NOT NULL UNIQUE')
+    expect(schema).toContain('token_hash TEXT NOT NULL UNIQUE')
+    expect(schema).not.toContain('password TEXT NOT NULL')
+    expect(schema).not.toContain('session_token TEXT')
+    expect(schema).not.toContain('client_secret TEXT')
   })
 
   it('keeps audit events metadata-only by default', () => {

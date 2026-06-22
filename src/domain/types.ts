@@ -1,11 +1,63 @@
 export type UnixMillis = number
 
+export type AppUserRole = 'owner' | 'admin' | 'viewer'
+
+export type AppUser = {
+  id: string
+  username: string
+  displayName?: string | null
+  role: AppUserRole
+  enabled: boolean
+  createdAt: UnixMillis
+  updatedAt: UnixMillis
+}
+
+export type PasswordCredential = {
+  userId: string
+  passwordHash: string
+  updatedAt: UnixMillis
+}
+
+export type UserSession = {
+  id: string
+  userId: string
+  sessionHash: string
+  expiresAt: UnixMillis
+  createdAt: UnixMillis
+  lastSeenAt?: UnixMillis | null
+}
+
+export type PendingOAuthLogin = {
+  state: string
+  codeVerifier: string
+  redirectUri: string
+  label: string
+  sourceDevice: string
+  poolId?: string | null
+  initiatedByUserId: string
+  expiresAt: UnixMillis
+  consumedAt?: UnixMillis | null
+  createdAt: UnixMillis
+}
+
+export type LocalClientToken = {
+  id: string
+  clientId: string
+  name: string
+  tokenHash: string
+  createdByUserId?: string | null
+  createdAt: UnixMillis
+  lastUsedAt?: UnixMillis | null
+  revokedAt?: UnixMillis | null
+}
+
 export type ClaudeAccount = {
   accountUuid: string
   organizationUuid: string
   email?: string | null
   displayName?: string | null
   upstreamClientIdentityId: string
+  ownerUserId?: string | null
   enabled: boolean
   subscriptionType?: string | null
   rateLimitTier?: string | null
@@ -17,6 +69,7 @@ export type OAuthToken = {
   label: string
   sourceDevice: string
   accountUuid: string
+  ownerUserId?: string | null
   scopes: string[]
   accessToken: string
   refreshToken?: string | null
@@ -30,6 +83,7 @@ export type AccountPool = {
   id: string
   name: string
   purpose?: string | null
+  ownerUserId?: string | null
   createdAt: UnixMillis
   updatedAt: UnixMillis
 }
@@ -45,6 +99,7 @@ export type AccountPoolMember = {
 export type LocalClient = {
   id: string
   name: string
+  ownerUserId?: string | null
   enabled: boolean
   defaultPoolId?: string | null
   createdAt: UnixMillis

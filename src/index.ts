@@ -1,5 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
+import { hashPassword } from './auth/password.js'
 import { ApiProxyGateway } from './api-proxy/gateway.js'
+import { ensureDefaultOwnerResources } from './bootstrap/default-resources.js'
 import {
   JsonlDebugTrafficRecorder,
   createDebugTrafficRecorderFromEnv,
@@ -41,6 +44,21 @@ export function startServer(input: {
   const host = input.host ?? process.env.HOST ?? '127.0.0.1'
   const store = SqliteStore.open(databasePath)
   store.initialize()
+  const bootstrapOwner = process.env.CLAUDE_MGR_BOOTSTRAP_OWNER
+  const bootstrapPassword = process.env.CLAUDE_MGR_BOOTSTRAP_PASSWORD
+  if (store.listAppUsers().length === 0 && bootstrapOwner && bootstrapPassword) {
+    const user = store.createAppUser({
+      id: randomUUID(),
+      username: bootstrapOwner,
+      role: 'owner',
+      enabled: true,
+    })
+    store.upsertPasswordCredential({
+      userId: user.id,
+      passwordHash: hashPassword(bootstrapPassword),
+    })
+  }
+  ensureDefaultOwnerResources(store)
   const debugRecorder = input.debugTrafficDir
     ? new JsonlDebugTrafficRecorder(input.debugTrafficDir)
     : createDebugTrafficRecorderFromEnv()

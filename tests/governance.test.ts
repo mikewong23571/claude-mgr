@@ -241,6 +241,7 @@ describe('repository governance', () => {
       'DELETE /admin/clients/{client_id}',
       'GET /admin/accounts',
       'PATCH /admin/accounts/{account_uuid}',
+      'DELETE /admin/tokens/{token_label}',
       'GET /admin/quota-snapshots',
       'POST /v1/messages',
     ]) {

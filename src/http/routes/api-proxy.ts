@@ -1,4 +1,5 @@
 import type { Hono } from 'hono'
+import { requireAuthenticatedLocalClient } from '../../auth/local-client.js'
 import { GatewayError } from '../../errors.js'
 import { ApiProxyGateway } from '../../api-proxy/gateway.js'
 import type { ProxyEndpointKind } from '../../upstream/api-proxy-client.js'
@@ -82,8 +83,16 @@ function proxyGateway(options: AppOptions): ApiProxyGateway {
 function registerProxyRoute(app: Hono, options: AppOptions, route: ProxyRoute): void {
   app.on(route.method, route.path, async c => {
     const request = c.req.raw
+    const localClientId = localClientIdForRoute(request, route)
+    if (localClientId) {
+      requireAuthenticatedLocalClient({
+        store: requireStore(options.store),
+        request,
+        localClientId,
+      })
+    }
     const result = await proxyGateway(options).forward({
-      localClientId: localClientIdForRoute(request, route),
+      localClientId,
       poolId: request.headers.get('x-claude-mgr-pool-id') ?? undefined,
       endpoint: route.endpoint,
       endpointKind: route.endpointKind,

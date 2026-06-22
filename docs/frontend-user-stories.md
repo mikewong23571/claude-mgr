@@ -55,7 +55,7 @@ Smoke / Diagnostics
 | ID | 用户故事 | 验收点 |
 | --- | --- | --- |
 | UI-A1 | 作为服务拥有者，我要看到服务健康状态 | 显示 `/health`、服务地址、最近一次检查时间；能明确区分服务在线/离线。 |
-| UI-B1 | 作为服务拥有者，我要发起 Claude.ai OAuth 登录 | 输入 token label、source device、目标 pool，生成 authorize URL，并能打开浏览器继续授权。 |
+| UI-B1 | 作为服务拥有者，我要发起 Claude.ai OAuth 登录 | 输入 token label、source device、目标 pool，选择 callback 或 manual code flow，生成 authorize URL，并能打开浏览器继续授权。 |
 | UI-B2 | 作为服务拥有者，我要看到已接入账号 | 列出 account uuid、email、display name、subscription、rate tier、enabled 状态；不显示 access/refresh token。 |
 | UI-B3 | 作为服务拥有者，我要禁用或启用账号 | 操作后 account-router 不再选择 disabled account；UI 明确展示禁用状态。 |
 | UI-C1 | 作为服务拥有者，我要管理账号池 | 创建、编辑、删除 pool；查看 pool members。 |
@@ -129,6 +129,7 @@ GET /admin/quota-snapshots
 首版前端可以视为通过，当它满足：
 
 1. 能完成 OAuth 登录入口的创建和授权 URL 展示。
+2. 能选择 manual code flow，并粘贴授权码或回调 URL 完成 token/profile 入库。
 2. 能查看账号、token 元数据、账号池、本地客户端。
 3. 能维护账号池成员和本地客户端默认账号池。
 4. 能查看 audit events 和 quota snapshots。
@@ -136,3 +137,17 @@ GET /admin/quota-snapshots
 6. 不暴露 token 明文，不展示正文内容。
 7. 对上游错误和 `gateway_*` 错误有不同视觉分类。
 
+## 9. 本地登录与用户管理补充
+
+当前前端还覆盖本地管理面安全：
+
+1. 未登录用户看到登录页，不能访问 admin API 数据。
+2. 登录成功后通过 HttpOnly session cookie 访问控制台。
+3. Header 展示当前本地用户，并支持退出登录。
+4. 当前用户可以修改自己的密码。
+5. `owner` 可以创建、查看和禁用本地用户。
+6. `owner` 和 `admin` 可以创建 local client access key。
+7. local client secret 只在创建后显示一次；token metadata 列表不显示 secret 或 hash。
+8. Claude Code setup 示例使用 `<local-client-secret>`，不再使用 dummy key。
+
+这些本地用户只用于管理面和资源可见性，不会作为上游 Anthropic 用户身份发送。

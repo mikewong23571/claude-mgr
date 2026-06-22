@@ -1,6 +1,7 @@
 import type {
   Account,
   AdminState,
+  AuthUser,
   AuditEvent,
   LocalClient,
   OAuthTokenMeta,
@@ -8,6 +9,15 @@ import type {
   PoolMember,
   QuotaSnapshot,
 } from './types.js'
+
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
 
 export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
@@ -27,11 +37,14 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
       body && typeof body === 'object' && 'error' in body
         ? body.error?.message
         : null
-    throw new Error(
-      errorMessage ?? `Request failed: ${response.status}`,
-    )
+    throw new ApiError(response.status, errorMessage ?? `Request failed: ${response.status}`)
   }
   return body as T
+}
+
+export async function loadCurrentUser(): Promise<AuthUser> {
+  const response = await apiJson<{ user: AuthUser }>('/auth/me')
+  return response.user
 }
 
 export async function loadAdminState(): Promise<AdminState> {

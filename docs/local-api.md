@@ -24,9 +24,12 @@ PORT=8787
 CLAUDE_MGR_DB=data/claude-mgr.sqlite
 CLAUDE_MGR_DEBUG_TRAFFIC=0
 CLAUDE_MGR_DEBUG_DIR=data/debug
+CLAUDE_MGR_BOOTSTRAP_OWNER=<optional first owner username>
+CLAUDE_MGR_BOOTSTRAP_PASSWORD=<optional first owner password>
 ```
 
 SQLite 数据库会自动初始化 schema。MVP 明文保存 OAuth access token 和 refresh token。
+本地控制台用户密码、session token 和 local client secret 只保存 hash。
 
 真实上游 smoke：
 
@@ -86,26 +89,94 @@ GET /health
 { "ok": true }
 ```
 
-## 3. OAuth
+## 3. Local App Auth
+
+Admin API 和 OAuth 发起入口需要本地 app user session。首次 owner 不通过公开
+signup 创建；可以用启动环境变量 bootstrap：
+
+```text
+CLAUDE_MGR_BOOTSTRAP_OWNER=owner CLAUDE_MGR_BOOTSTRAP_PASSWORD=... npm run dev
+```
+
+只要数据库中存在启用的 owner，启动时会确保存在：
+
+1. `default` 账号池。
+2. `default` 本地客户端，默认路由到 `default` 账号池。
+
+这些默认资源只在不存在时创建，不会覆盖已经存在的同名资源。client secret
+不会静默生成；需要在管理台创建，因为 secret 只显示一次。
+
+### Login
+
+```text
+POST /auth/login
+```
+
+请求：
+
+```json
+{
+  "username": "owner",
+  "password": "..."
+}
+```
+
+响应会设置 HttpOnly `claude_mgr_session` cookie，并返回当前用户元数据。
+
+### Current User
+
+```text
+GET /auth/me
+```
+
+### Logout
+
+```text
+POST /auth/logout
+```
+
+### Change Password
+
+```text
+POST /auth/change-password
+```
+
+请求：
+
+```json
+{
+  "current_password": "...",
+  "new_password": "..."
+}
+```
+
+## 4. OAuth
 
 ### Start Login
 
 ```text
-GET /oauth/authorize?label=<token_label>&source_device=<device_label>&redirect_uri=<optional_callback_url>&pool_id=<optional_pool>
+GET /oauth/authorize?label=<token_label>&source_device=<device_label>&flow=<callback|manual>&redirect_uri=<optional_callback_url>&pool_id=<optional_pool>
 ```
 
 作用：
 
 1. 生成 OAuth state 和 PKCE verifier。
-2. 在当前进程内保存 pending login。
+2. 在 SQLite 中保存 pending login、发起用户、过期时间和未消费状态。
 3. 返回 Claude Code OAuth authorize URL。
-4. 如果没有传 `redirect_uri`，默认使用当前服务 origin 的 `/callback`。
+4. `flow` 默认为 `callback`。如果没有传 `redirect_uri`，默认使用 `/callback`。本地 loopback 访问
+   `127.0.0.1`、`0.0.0.0` 或 `::1` 时，会规范化为
+   `http://localhost:<port>/callback`，以匹配 Claude Code 官方 OAuth 行为。
+5. `flow=manual` 时使用 Claude Code 官方 manual redirect URI
+   `https://platform.claude.com/oauth/code/callback`，用于远端部署或浏览器无法回调本服务的场景。
+6. 如果没有传 `pool_id`，但当前用户可见 `default` 账号池，则默认使用该账号池。
 
 响应：
 
 ```json
 {
   "authorize_url": "https://claude.com/cai/oauth/authorize?...",
+  "flow": "callback",
+  "redirect_uri": "http://localhost:8787/callback",
   "state": "..."
 }
 ```
@@ -117,6 +188,10 @@ GET /oauth/authorize?label=<token_label>&source_device=<device_label>&redirect_u
 ```text
 GET /callback?code=<authorization_code>&state=<state>
 ```
+
+`GET /callback` 和 `GET /oauth/callback` 用于浏览器 popup。成功完成 token/profile
+入库后返回一个短 HTML 成功页，该页面会通知 opener 并自动关闭。管理台通过
+`GET /oauth/status` 轮询 pending state，不依赖 callback 页面返回 JSON。
 
 手动回调：
 
@@ -134,14 +209,45 @@ Content-Type: application/json
 }
 ```
 
+如果 `GET /oauth/authorize` 使用 `flow=manual`，用户应打开返回的 authorize URL，
+在 Claude 官方 manual callback 页面取得授权码，再把授权码和同一个 `state` 提交到
+`POST /oauth/callback`。token exchange 会使用 pending login 中保存的 manual
+redirect URI；不要把 manual 授权码拿去和 callback flow 的 pending state 混用。
+
 作用：
 
-1. 校验 pending state。
+1. 校验 pending state 存在、未过期、未消费。
 2. 使用 code verifier 调用 token endpoint。
 3. 调用 profile endpoint。
 4. 明文保存 token。
 5. 保存或更新 account。
-6. 如果 authorize 阶段传了 `pool_id`，把账号加入账号池。
+6. 如果 authorize 阶段带有显式或默认 `pool_id`，把账号加入账号池。
+7. 消费 pending state，后续重放会失败。
+
+`GET /callback` 和 `GET /oauth/callback` 不依赖普通 admin cookie 作为唯一保护；
+它们通过 server-side pending state + PKCE continuation 保护。`POST /oauth/callback`
+用于 admin UI 手动提交时，还要求当前 session user 与 pending login 发起用户一致。
+
+### Login Status
+
+```text
+GET /oauth/status?state=<state>
+```
+
+需要本地 app user session，且 session user 必须匹配 pending login 的发起用户。
+响应只返回流程状态和非敏感 metadata：
+
+```json
+{
+  "state": "...",
+  "status": "pending",
+  "label": "main",
+  "source_device": "macbook"
+}
+```
+
+`status` 可能是 `pending`、`success` 或 `expired`。管理台用它在 callback
+flow 中轮询登录完成状态；成功后刷新账号和 token metadata。
 
 响应：
 
@@ -154,9 +260,29 @@ Content-Type: application/json
 }
 ```
 
-## 4. Admin
+## 5. Runtime Local Client Auth
 
-这些接口是单人本地服务管理面，MVP 暂不做多用户权限系统。
+Claude Code-compatible runtime entrypoints 不使用浏览器 session。它们使用：
+
+```text
+x-claude-mgr-client-id: <local_client_id>
+x-api-key: <local_client_secret>
+```
+
+或者：
+
+```text
+Authorization: Bearer <local_client_secret>
+```
+
+如果同一请求同时包含 `x-api-key` 和 `Authorization`，本地 client auth 优先使用
+`x-api-key`，避免把下游 Authorization 误当成本地 secret。local client secret
+创建后只返回一次明文，数据库只保存 hash。
+
+## 6. Admin
+
+这些接口是本地服务管理面。读接口需要本地 app user session；写接口需要
+`admin` 或 `owner`；用户管理需要 `owner`。
 
 ### Create Pool
 
@@ -331,6 +457,16 @@ GET /admin/tokens
 
 响应会隐藏明文 `accessToken` 和 `refreshToken`，只返回 token 元数据。凭证本身仍明文保存在 SQLite。
 
+### Delete Token
+
+```text
+DELETE /admin/tokens/{token_label}
+```
+
+删除指定 OAuth token，保留 Claude account、pool membership、audit event 和 quota
+snapshot。为了保留历史记录，已有 audit/quota 记录中的 `token_label` 会置为
+`null`，不会级联删除历史。
+
 ### List Audit Events
 
 ```text
@@ -342,6 +478,48 @@ GET /admin/audit-events
 ```text
 GET /admin/quota-snapshots
 ```
+
+### Local Client Access Keys
+
+```text
+POST /admin/clients/{client_id}/tokens
+GET /admin/clients/{client_id}/tokens
+DELETE /admin/clients/{client_id}/tokens/{token_id}
+```
+
+Create token 请求：
+
+```json
+{
+  "name": "Claude Code on Mac"
+}
+```
+
+创建响应会返回一次性 `secret`。列表响应只返回 token metadata，不返回 `secret` 或
+`token_hash`。
+
+### Local Users
+
+`owner` 可管理本地 app users：
+
+```text
+GET /admin/users
+POST /admin/users
+PATCH /admin/users/{user_id}
+POST /admin/users/{user_id}/reset-password
+POST /admin/users/{user_id}/disable
+```
+
+角色：
+
+```text
+owner
+admin
+viewer
+```
+
+`viewer` 只能读；`admin` 可管理 Claude accounts、pools、local clients 和 client
+secrets；`owner` 额外可管理本地用户。
 
 Quota snapshot 来自上游响应 headers 中的 `anthropic-ratelimit-unified-*` 信息，绑定到选中 account 和 token label。普通 `/v1/messages` 响应默认不返回这些账号级 quota 元数据。`account-router` 会跳过最近 snapshot 为 `rejected` 且 reset 尚未过期的账号；这只是保守可用性过滤，不是复杂负载均衡。
 
@@ -468,6 +646,8 @@ Claude Code CLI 可通过环境变量指向本地网关。基于 Claude Code 2.1
 2. `ANTHROPIC_API_KEY` 在 `--bare` 模式下必须存在，但这里只作为 Claude Code 本地认证路径的占位值；网关不会把下游 `x-api-key` 转发给上游。
 3. `ANTHROPIC_CUSTOM_HEADERS` 使用换行分隔的 curl 风格 header，不是 JSON。
 4. 使用临时 `HOME` 和 `CLAUDE_CONFIG_DIR` 可以避免读写真实 `~/.claude` 状态。
+5. 也可以把这些值写入用户级 `~/.claude/settings.json` 的 `env` 字段；
+   不要写入项目级 `.claude/settings.json`，避免把本地 client secret 提交到仓库。
 
 示例：
 
@@ -489,6 +669,18 @@ env \
     --model claude-haiku-4-5-20251001 \
     --output-format json \
     "Respond with exactly OK and nothing else."
+```
+
+用户级 `settings.json` 片段：
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:8787",
+    "ANTHROPIC_API_KEY": "<local-client-secret>",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-claude-mgr-client-id: live-smoke-client\nx-claude-mgr-pool-id: live-smoke"
+  }
+}
 ```
 
 当前 MVP 的 Claude Code 兼容治理规则会接受 `context_management` 作为下游输入，但不会把它转发给 Claude.ai OAuth Messages 上游；实测上游会拒绝该 beta-only 字段。

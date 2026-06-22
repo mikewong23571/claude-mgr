@@ -53,6 +53,26 @@ debug 输出默认为 `data/debug/traffic-*.jsonl`。它记录下游 Claude Code
 npm run smoke:live -- --dry-run --host localhost
 ```
 
+Docker 构建与运行：
+
+```text
+docker build -t claude-mgr:local .
+docker volume create claude-mgr-data
+docker run --rm \
+  -p 8787:8787 \
+  -v claude-mgr-data:/app/data \
+  -e CLAUDE_MGR_BOOTSTRAP_OWNER=owner \
+  -e CLAUDE_MGR_BOOTSTRAP_PASSWORD='<strong-password>' \
+  claude-mgr:local
+```
+
+镜像默认监听 `0.0.0.0:8787`，SQLite 数据库默认写到
+`/app/data/claude-mgr.sqlite`。首次启动时如果数据库没有本地 app user，会用
+`CLAUDE_MGR_BOOTSTRAP_OWNER` / `CLAUDE_MGR_BOOTSTRAP_PASSWORD` 创建 owner；后续
+启动可以移除这两个环境变量。只要存在启用的 owner，服务会确保存在一个
+`default` 账号池和一个默认指向该账号池的 `default` 本地客户端。client secret
+仍需要在管理台显式创建，因为密钥只显示一次。
+
 非目标：
 
 1. 不实现多租户隔离。

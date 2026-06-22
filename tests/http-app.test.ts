@@ -3,7 +3,11 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { hashSecret } from '../src/auth/secrets.js'
+import { createSession, sessionCookie } from '../src/auth/session.js'
+import { hashPassword } from '../src/auth/password.js'
 import { ApiProxyGateway } from '../src/api-proxy/gateway.js'
+import { defaultPoolId } from '../src/bootstrap/default-resources.js'
 import { ClaudeCliGateway } from '../src/claude-cli/gateway.js'
 import { JsonlDebugTrafficRecorder } from '../src/debug/traffic-recorder.js'
 import { createFetchHandler } from '../src/http/app.js'
@@ -16,6 +20,35 @@ import { SqliteStore } from '../src/storage/sqlite-store.js'
 import { ApiProxyClient } from '../src/upstream/api-proxy-client.js'
 import { UpstreamClaudeCliClient } from '../src/upstream/claude-cli-client.js'
 import { UpstreamMessagesClient } from '../src/upstream/messages-client.js'
+
+const localClientSecret = 'local-dummy-key'
+
+function seedLocalClientToken(
+  store: SqliteStore,
+  clientId: string,
+  secret = localClientSecret,
+): void {
+  store.createLocalClientToken({
+    id: `test-token-${clientId}-${secret}`,
+    clientId,
+    name: 'Test token',
+    tokenHash: hashSecret(secret),
+  })
+}
+
+function seedOwner(store: SqliteStore): { cookie: string } {
+  const user = store.createAppUser({
+    id: 'owner-test',
+    username: 'owner',
+    role: 'owner',
+  })
+  store.upsertPasswordCredential({
+    userId: user.id,
+    passwordHash: hashPassword('password'),
+  })
+  const session = createSession({ store, userId: user.id })
+  return { cookie: sessionCookie(session.token, session.expiresAt) }
+}
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -42,6 +75,9 @@ function seedStore(): SqliteStore {
     name: 'Client A',
     defaultPoolId: 'pool-main',
   })
+  seedLocalClientToken(store, 'client-a')
+  seedLocalClientToken(store, 'client-a', 'local-secret')
+  seedLocalClientToken(store, 'client-a', 'downstream-key')
   store.upsertOAuthToken({
     label: 'token-a',
     sourceDevice: 'laptop',
@@ -174,6 +210,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -208,7 +245,9 @@ describe('HTTP app', () => {
     })
 
     const quotaResponse = await handle(
-      new Request('http://localhost/admin/quota-snapshots'),
+      new Request('http://localhost/admin/quota-snapshots', {
+        headers: { Cookie: seedOwner(store).cookie },
+      }),
     )
     expect(await quotaResponse.json()).toMatchObject([
       {
@@ -299,9 +338,9 @@ describe('HTTP app', () => {
         new Request('http://localhost/v1/messages', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'x-claude-mgr-client-id': 'client-a',
-            'x-api-key': 'local-secret',
+          'Content-Type': 'application/json',
+          'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': 'local-secret',
           },
           body: JSON.stringify({
             model: 'claude-test',
@@ -352,6 +391,7 @@ describe('HTTP app', () => {
       name: 'Client A',
       defaultPoolId: 'pool-main',
     })
+    seedLocalClientToken(store, 'client-a')
     store.upsertOAuthToken({
       label: 'token-a',
       sourceDevice: 'laptop',
@@ -387,6 +427,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
           'X-Claude-Code-Session-Id': 'official-session-1',
         },
         body,
@@ -398,6 +439,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
           'X-Claude-Code-Session-Id': 'official-session-1',
         },
         body,
@@ -409,6 +451,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body,
       }),
@@ -468,6 +511,7 @@ describe('HTTP app', () => {
         headers: {
           'x-claude-mgr-client-id': 'client-a',
           'x-claude-mgr-pool-id': 'pool-main',
+          'x-api-key': localClientSecret,
         },
       }),
     )
@@ -518,7 +562,10 @@ describe('HTTP app', () => {
 
     const response = await handle(
       new Request('http://localhost/api/claude_cli/bootstrap', {
-        headers: { 'x-claude-mgr-client-id': 'client-a' },
+        headers: {
+          'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
+        },
       }),
     )
 
@@ -559,7 +606,10 @@ describe('HTTP app', () => {
 
     const response = await handle(
       new Request('http://localhost/api/oauth/usage', {
-        headers: { 'x-claude-mgr-client-id': 'client-a' },
+        headers: {
+          'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
+        },
       }),
     )
 
@@ -664,6 +714,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'multipart/form-data; boundary=test-boundary',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body: '--test-boundary\r\nfile-content\r\n--test-boundary--\r\n',
       }),
@@ -734,6 +785,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({ display_name: 'Claude Code on test' }),
       }),
@@ -781,6 +833,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -830,6 +883,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -882,8 +936,86 @@ describe('HTTP app', () => {
     ])
   })
 
+  it('protects admin routes and supports local login sessions', async () => {
+    const store = seedStore()
+    seedOwner(store)
+    const handle = createHandler(store, async () => {
+      throw new Error('must not call upstream')
+    })
+
+    const blocked = await handle(new Request('http://localhost/admin/accounts'))
+    expect(blocked.status).toBe(401)
+
+    const login = await handle(
+      new Request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'owner', password: 'password' }),
+      }),
+    )
+    expect(login.status).toBe(200)
+    const cookie = login.headers.get('set-cookie')
+    expect(cookie).toContain('claude_mgr_session=')
+
+    const accounts = await handle(
+      new Request('http://localhost/admin/accounts', {
+        headers: { Cookie: cookie ?? '' },
+      }),
+    )
+    expect(accounts.status).toBe(200)
+    expect(await accounts.json()).toMatchObject([{ accountUuid: 'acc-a' }])
+  })
+
+  it('creates local client tokens and returns plaintext secrets only once', async () => {
+    const store = seedStore()
+    const owner = seedOwner(store)
+    const handle = createHandler(store, async () =>
+      jsonResponse({ id: 'msg-client-token', usage: {} }),
+    )
+
+    const created = await handle(
+      new Request('http://localhost/admin/clients/client-a/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
+        body: JSON.stringify({ name: 'Fresh key' }),
+      }),
+    )
+    expect(created.status).toBe(201)
+    const createdBody = (await created.json()) as { secret: string; id: string }
+    expect(createdBody.secret).toMatch(/^cmc_/)
+
+    const listed = await handle(
+      new Request('http://localhost/admin/clients/client-a/tokens', {
+        headers: { Cookie: owner.cookie },
+      }),
+    )
+    const tokenList = (await listed.json()) as Array<Record<string, unknown>>
+    const listedToken = tokenList.find(token => token.id === createdBody.id)
+    expect(listedToken).toBeDefined()
+    expect(listedToken).not.toHaveProperty('secret')
+    expect(listedToken).not.toHaveProperty('tokenHash')
+
+    const response = await handle(
+      new Request('http://localhost/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': createdBody.secret,
+        },
+        body: JSON.stringify({
+          model: 'claude-test',
+          max_tokens: 8,
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+  })
+
   it('maps SQLite driver errors to gateway storage errors', async () => {
     const store = seedStore()
+    const owner = seedOwner(store)
     const handle = createHandler(store, async () => {
       throw new Error('must not call upstream')
     })
@@ -891,7 +1023,7 @@ describe('HTTP app', () => {
     const response = await handle(
       new Request('http://localhost/admin/pools', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({
           id: 'pool-main',
           name: 'Main',
@@ -964,6 +1096,7 @@ describe('HTTP app', () => {
       name: 'No Token Client',
       defaultPoolId: 'pool-no-token',
     })
+    seedLocalClientToken(store, 'client-no-token')
     const handle = createHandler(store, async () => {
       throw new Error('must not call upstream')
     })
@@ -974,6 +1107,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-no-token',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -1004,6 +1138,7 @@ describe('HTTP app', () => {
       name: 'Empty Client',
       defaultPoolId: 'pool-empty',
     })
+    seedLocalClientToken(store, 'client-empty')
     const handle = createHandler(store, async () => {
       throw new Error('must not call upstream')
     })
@@ -1014,6 +1149,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-empty',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -1061,6 +1197,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -1095,6 +1232,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-a',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -1127,6 +1265,7 @@ describe('HTTP app', () => {
   it('supports OAuth authorize/callback install and redacted token listing', async () => {
     const store = new SqliteStore(new DatabaseSync(':memory:'))
     store.initialize()
+    const owner = seedOwner(store)
     store.createPool({ id: 'pool-oauth', name: 'OAuth Pool' })
     const fetch: FetchLike = async url => {
       if (String(url).endsWith('/v1/oauth/token')) {
@@ -1162,6 +1301,7 @@ describe('HTTP app', () => {
     const authorize = await handle(
       new Request(
         'http://localhost/oauth/authorize?label=main&source_device=laptop&redirect_uri=http://localhost/callback&pool_id=pool-oauth',
+        { headers: { Cookie: owner.cookie } },
       ),
     )
     expect(authorize.status).toBe(200)
@@ -1174,7 +1314,7 @@ describe('HTTP app', () => {
     const callback = await handle(
       new Request('http://localhost/oauth/callback', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({
           code: 'code-installed',
           state: authorizeBody.state,
@@ -1188,7 +1328,23 @@ describe('HTTP app', () => {
       token_label: 'main',
     })
 
-    const tokens = await handle(new Request('http://localhost/admin/tokens'))
+    const replay = await handle(
+      new Request('http://localhost/oauth/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
+        body: JSON.stringify({
+          code: 'code-installed',
+          state: authorizeBody.state,
+        }),
+      }),
+    )
+    expect(replay.status).toBe(401)
+
+    const tokens = await handle(
+      new Request('http://localhost/admin/tokens', {
+        headers: { Cookie: owner.cookie },
+      }),
+    )
     const tokenList = (await tokens.json()) as Array<Record<string, unknown>>
     expect(tokenList[0]).toMatchObject({
       label: 'main',
@@ -1197,11 +1353,48 @@ describe('HTTP app', () => {
     })
     expect(tokenList[0]).not.toHaveProperty('accessToken')
     expect(tokenList[0]).not.toHaveProperty('refreshToken')
+
+    const quota = store.insertQuotaSnapshot({
+      id: 'quota-main',
+      accountUuid: 'acc-installed',
+      tokenLabel: 'main',
+      status: 'allowed',
+    })
+    store.insertAuditEvent({
+      id: 'audit-main',
+      clientId: 'client-main',
+      accountUuid: 'acc-installed',
+      tokenLabel: 'main',
+      quotaSnapshotId: quota.id,
+      status: 'success',
+    })
+
+    const deleted = await handle(
+      new Request('http://localhost/admin/tokens/main', {
+        method: 'DELETE',
+        headers: { Cookie: owner.cookie },
+      }),
+    )
+    expect(deleted.status).toBe(200)
+    expect(await deleted.json()).toEqual({ deleted: true })
+    expect(store.listOAuthTokens()).toEqual([])
+    expect(store.getAuditEvent('audit-main').tokenLabel).toBeNull()
+    expect(store.listQuotaSnapshots()[0].tokenLabel).toBeNull()
+    expect(store.getAccount('acc-installed')).toMatchObject({
+      accountUuid: 'acc-installed',
+      enabled: true,
+    })
   })
 
   it('defaults OAuth redirect URI to browser GET /callback', async () => {
     const store = new SqliteStore(new DatabaseSync(':memory:'))
     store.initialize()
+    const owner = seedOwner(store)
+    store.createPool({
+      id: defaultPoolId,
+      name: 'Default',
+      ownerUserId: 'owner-test',
+    })
     const exchangeBodies: Array<Record<string, string>> = []
     const fetch: FetchLike = async (url, init) => {
       if (String(url).endsWith('/v1/oauth/token')) {
@@ -1237,6 +1430,7 @@ describe('HTTP app', () => {
     const authorize = await handle(
       new Request(
         'http://127.0.0.1:8787/oauth/authorize?label=browser&source_device=laptop',
+        { headers: { Cookie: owner.cookie } },
       ),
     )
     const authorizeBody = (await authorize.json()) as {
@@ -1245,8 +1439,20 @@ describe('HTTP app', () => {
     }
     const authorizeUrl = new URL(authorizeBody.authorize_url)
     expect(authorizeUrl.searchParams.get('redirect_uri')).toBe(
-      'http://127.0.0.1:8787/callback',
+      'http://localhost:8787/callback',
     )
+
+    const pendingStatus = await handle(
+      new Request(
+        `http://127.0.0.1:8787/oauth/status?state=${authorizeBody.state}`,
+        { headers: { Cookie: owner.cookie } },
+      ),
+    )
+    expect(await pendingStatus.json()).toMatchObject({
+      state: authorizeBody.state,
+      status: 'pending',
+      label: 'browser',
+    })
 
     const callback = await handle(
       new Request(
@@ -1254,22 +1460,121 @@ describe('HTTP app', () => {
       ),
     )
     expect(callback.status).toBe(200)
-    expect(await callback.json()).toMatchObject({
-      account_uuid: 'acc-browser',
-      token_label: 'browser',
+    expect(callback.headers.get('content-type')).toContain('text/html')
+    expect(await callback.text()).toContain('OAuth login complete')
+
+    const successStatus = await handle(
+      new Request(
+        `http://127.0.0.1:8787/oauth/status?state=${authorizeBody.state}`,
+        { headers: { Cookie: owner.cookie } },
+      ),
+    )
+    expect(await successStatus.json()).toMatchObject({
+      state: authorizeBody.state,
+      status: 'success',
+      label: 'browser',
+    })
+    expect(store.getPoolMember(defaultPoolId, 'acc-browser')).toMatchObject({
+      poolId: defaultPoolId,
+      accountUuid: 'acc-browser',
     })
     expect(exchangeBodies[0].redirect_uri).toBe(
-      'http://127.0.0.1:8787/callback',
+      'http://localhost:8787/callback',
+    )
+  })
+
+  it('supports manual OAuth authorize URL and pasted authorization code', async () => {
+    const store = new SqliteStore(new DatabaseSync(':memory:'))
+    store.initialize()
+    const owner = seedOwner(store)
+    store.createPool({
+      id: defaultPoolId,
+      name: 'Default',
+      ownerUserId: 'owner-test',
+    })
+    const exchangeBodies: Array<Record<string, string>> = []
+    const fetch: FetchLike = async (url, init) => {
+      if (String(url).endsWith('/v1/oauth/token')) {
+        exchangeBodies.push(JSON.parse(String(init?.body)) as Record<string, string>)
+        return jsonResponse({
+          access_token: 'access-manual',
+          refresh_token: 'refresh-manual',
+          expires_in: 3600,
+          scope: 'user:profile user:inference',
+        })
+      }
+      return jsonResponse({
+        account: {
+          uuid: 'acc-manual',
+          email_address: 'manual@example.test',
+          display_name: 'Manual',
+        },
+        organization: {
+          uuid: 'org-manual',
+          organization_type: 'claude_pro',
+        },
+      })
+    }
+    const handle = createFetchHandler({
+      store,
+      oauthClient: new OAuthClient({ fetch }),
+      gateway: new MessagesGateway({
+        store,
+        upstream: new UpstreamMessagesClient({ fetch }),
+      }),
+    })
+
+    const authorize = await handle(
+      new Request(
+        'http://remote.example/oauth/authorize?label=manual&source_device=server&flow=manual',
+        { headers: { Cookie: owner.cookie } },
+      ),
+    )
+    expect(authorize.status).toBe(200)
+    const authorizeBody = (await authorize.json()) as {
+      authorize_url: string
+      flow: string
+      redirect_uri: string
+      state: string
+    }
+    const authorizeUrl = new URL(authorizeBody.authorize_url)
+    expect(authorizeBody.flow).toBe('manual')
+    expect(authorizeBody.redirect_uri).toBe(
+      'https://platform.claude.com/oauth/code/callback',
+    )
+    expect(authorizeUrl.searchParams.get('redirect_uri')).toBe(
+      'https://platform.claude.com/oauth/code/callback',
+    )
+
+    const callback = await handle(
+      new Request('http://remote.example/oauth/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
+        body: JSON.stringify({
+          code: 'manual-code',
+          state: authorizeBody.state,
+        }),
+      }),
+    )
+    expect(callback.status).toBe(200)
+    expect(await callback.json()).toMatchObject({
+      account_uuid: 'acc-manual',
+      token_label: 'manual',
+    })
+    expect(exchangeBodies[0].redirect_uri).toBe(
+      'https://platform.claude.com/oauth/code/callback',
     )
   })
 
   it('manages account pools and pool members through admin routes', async () => {
     const store = new SqliteStore(new DatabaseSync(':memory:'))
     store.initialize()
+    const owner = seedOwner(store)
     store.upsertAccount({
       accountUuid: 'acc-admin',
       organizationUuid: 'org-admin',
       upstreamClientIdentityId: 'identity-admin',
+      ownerUserId: 'owner-test',
     })
     const handle = createFetchHandler({
       store,
@@ -1284,7 +1589,7 @@ describe('HTTP app', () => {
     const createdPool = await handle(
       new Request('http://localhost/admin/pools', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({
           id: 'admin-pool',
           name: 'Admin Pool',
@@ -1297,7 +1602,7 @@ describe('HTTP app', () => {
     const addedMember = await handle(
       new Request('http://localhost/admin/pools/admin-pool/members', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({
           account_uuid: 'acc-admin',
           priority: 10,
@@ -1316,7 +1621,7 @@ describe('HTTP app', () => {
     const updatedMember = await handle(
       new Request('http://localhost/admin/pools/admin-pool/members/acc-admin', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({ enabled: false, priority: 50 }),
       }),
     )
@@ -1326,13 +1631,16 @@ describe('HTTP app', () => {
     })
 
     const members = await handle(
-      new Request('http://localhost/admin/pools/admin-pool/members'),
+      new Request('http://localhost/admin/pools/admin-pool/members', {
+        headers: { Cookie: owner.cookie },
+      }),
     )
     expect(await members.json()).toHaveLength(1)
 
     const removed = await handle(
       new Request('http://localhost/admin/pools/admin-pool/members/acc-admin', {
         method: 'DELETE',
+        headers: { Cookie: owner.cookie },
       }),
     )
     expect(await removed.json()).toEqual({ deleted: true })
@@ -1340,6 +1648,7 @@ describe('HTTP app', () => {
     const deletedPool = await handle(
       new Request('http://localhost/admin/pools/admin-pool', {
         method: 'DELETE',
+        headers: { Cookie: owner.cookie },
       }),
     )
     expect(await deletedPool.json()).toEqual({ deleted: true })
@@ -1348,7 +1657,8 @@ describe('HTTP app', () => {
   it('manages local clients through admin routes', async () => {
     const store = new SqliteStore(new DatabaseSync(':memory:'))
     store.initialize()
-    store.createPool({ id: 'pool-clients', name: 'Clients Pool' })
+    const owner = seedOwner(store)
+    store.createPool({ id: 'pool-clients', name: 'Clients Pool', ownerUserId: 'owner-test' })
     const handle = createFetchHandler({
       store,
       gateway: new MessagesGateway({
@@ -1362,7 +1672,7 @@ describe('HTTP app', () => {
     const created = await handle(
       new Request('http://localhost/admin/clients', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({
           id: 'client-admin',
           name: 'Client Admin',
@@ -1380,7 +1690,7 @@ describe('HTTP app', () => {
     const updated = await handle(
       new Request('http://localhost/admin/clients/client-admin', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({
           name: 'Client Admin Disabled',
           enabled: false,
@@ -1398,6 +1708,7 @@ describe('HTTP app', () => {
     const deleted = await handle(
       new Request('http://localhost/admin/clients/client-admin', {
         method: 'DELETE',
+        headers: { Cookie: owner.cookie },
       }),
     )
     expect(await deleted.json()).toEqual({ deleted: true })
@@ -1407,17 +1718,24 @@ describe('HTTP app', () => {
   it('disables Claude accounts through admin routes without removing other accounts', async () => {
     const store = new SqliteStore(new DatabaseSync(':memory:'))
     store.initialize()
+    const owner = seedOwner(store)
     store.upsertAccount({
       accountUuid: 'acc-disabled',
       organizationUuid: 'org-disabled',
       upstreamClientIdentityId: 'identity-disabled',
+      ownerUserId: 'owner-test',
     })
     store.upsertAccount({
       accountUuid: 'acc-active',
       organizationUuid: 'org-active',
       upstreamClientIdentityId: 'identity-active',
+      ownerUserId: 'owner-test',
     })
-    store.createPool({ id: 'pool-accounts', name: 'Accounts Pool' })
+    store.createPool({
+      id: 'pool-accounts',
+      name: 'Accounts Pool',
+      ownerUserId: 'owner-test',
+    })
     store.addAccountToPool({
       poolId: 'pool-accounts',
       accountUuid: 'acc-disabled',
@@ -1462,7 +1780,7 @@ describe('HTTP app', () => {
     const disabled = await handle(
       new Request('http://localhost/admin/accounts/acc-disabled', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Cookie: owner.cookie },
         body: JSON.stringify({ enabled: false }),
       }),
     )
@@ -1499,6 +1817,7 @@ describe('HTTP app', () => {
       name: 'Expired Client',
       defaultPoolId: 'pool-expired',
     })
+    seedLocalClientToken(store, 'client-expired')
     store.upsertOAuthToken({
       label: 'expired-token',
       sourceDevice: 'laptop',
@@ -1539,6 +1858,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-expired',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -1575,6 +1895,7 @@ describe('HTTP app', () => {
       name: 'Refresh Fail Client',
       defaultPoolId: 'pool-refresh-fail',
     })
+    seedLocalClientToken(store, 'client-refresh-fail')
     store.upsertOAuthToken({
       label: 'refresh-fail-token',
       sourceDevice: 'laptop',
@@ -1616,6 +1937,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-refresh-fail',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',
@@ -1671,6 +1993,7 @@ describe('HTTP app', () => {
       name: '401 Client',
       defaultPoolId: 'pool-401',
     })
+    seedLocalClientToken(store, 'client-401')
     store.upsertOAuthToken({
       label: 'token-401',
       sourceDevice: 'laptop',
@@ -1724,6 +2047,7 @@ describe('HTTP app', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-claude-mgr-client-id': 'client-401',
+          'x-api-key': localClientSecret,
         },
         body: JSON.stringify({
           model: 'claude-test',

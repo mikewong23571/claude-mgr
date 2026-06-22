@@ -22,9 +22,40 @@ const optionalNumber = z.unknown().optional().transform(value =>
   typeof value === 'number' ? value : undefined,
 )
 
+const userRole = z.enum(['owner', 'admin', 'viewer'])
+
 export const OAuthCallbackBody = z.object({
   code: z.string(),
   state: z.string(),
+})
+
+export const LoginBody = z.object({
+  username: z.string(),
+  password: z.string(),
+})
+
+export const ChangePasswordBody = z.object({
+  current_password: z.string(),
+  new_password: z.string(),
+})
+
+export const CreateUserBody = z.object({
+  username: z.string(),
+  display_name: nullableStringForCreate,
+  role: userRole,
+  password: z.string(),
+  enabled: optionalBoolean,
+})
+
+export const UpdateUserBody = z.object({
+  username: optionalString,
+  display_name: optionalNullableString,
+  role: userRole.optional(),
+  enabled: optionalBoolean,
+})
+
+export const ResetUserPasswordBody = z.object({
+  password: z.string(),
 })
 
 export const CreatePoolBody = z.object({
@@ -56,6 +87,10 @@ export const CreateClientBody = z.object({
   default_pool_id: nullableStringForCreate,
 })
 
+export const CreateClientTokenBody = z.object({
+  name: z.string(),
+})
+
 export const UpdateClientBody = z.object({
   name: optionalString,
   enabled: optionalBoolean,
@@ -68,9 +103,14 @@ export const UpdateAccountBody = z.object({
 
 const validationMessages = new Map<z.ZodType, string>([
   [OAuthCallbackBody, 'code and state are required'],
+  [LoginBody, 'username and password are required'],
+  [ChangePasswordBody, 'current_password and new_password are required'],
+  [CreateUserBody, 'username, role, and password are required'],
+  [ResetUserPasswordBody, 'password is required'],
   [CreatePoolBody, 'id and name are required'],
   [AddPoolMemberBody, 'account_uuid is required'],
   [CreateClientBody, 'id and name are required'],
+  [CreateClientTokenBody, 'name is required'],
 ])
 
 export async function parseJsonBody<T extends z.ZodType>(

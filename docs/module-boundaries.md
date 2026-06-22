@@ -9,18 +9,20 @@
 3. 多个 Claude.ai 账号是账号级隔离，不是把多个账号伪装成同一个上游账号。
 4. 每个 Claude.ai 账号维护独立的 upstream identity、OAuth token、quota snapshot 和 audit event。
 5. MVP 使用 SQLite 明文保存认证信息，包括 OAuth access token、refresh token、账号元数据和认证状态。
-6. MVP 核心是 OAuth 认证后的 Messages 交互链路，包括 non-streaming 和 SSE streaming。
-7. 上游 Anthropic 错误与本地网关错误必须可区分。
-8. 兼容 Claude Code 的行为应来自参考源码、npm 包 spike 或线上验证，不能靠猜测扩展。
-9. 实现过程中避免自由发挥。涉及 OAuth、headers、metadata、endpoint、错误结构、streaming、quota、identity 的行为，必须先有 Claude Code 参考源码、npm 包 spike 或线上实测依据。
-10. 本项目可以新增本地审计、路由、账号池字段，但这些字段只能服务本地语义，不得伪装成已验证的上游协议或设备指纹。
+6. 本地 app user 密码、session token 和 local client secret 只保存 hash。
+7. MVP 核心是 OAuth 认证后的 Messages 交互链路，包括 non-streaming 和 SSE streaming。
+8. 上游 Anthropic 错误与本地网关错误必须可区分。
+9. 兼容 Claude Code 的行为应来自参考源码、npm 包 spike 或线上验证，不能靠猜测扩展。
+10. 实现过程中避免自由发挥。涉及 OAuth、headers、metadata、endpoint、错误结构、streaming、quota、identity 的行为，必须先有 Claude Code 参考源码、npm 包 spike 或线上实测依据。
+11. 本项目可以新增本地审计、路由、账号池字段，但这些字段只能服务本地语义，不得伪装成已验证的上游协议或设备指纹。
 
 ## 2. 模块图
 
 ```text
 downstream client
   -> http-api
-  -> local-client-auth
+  -> local-app-auth for admin/OAuth initiation
+  -> local-client-auth for runtime Claude Code-compatible calls
   -> request-adapter
   -> account-router
   -> credential-store
@@ -33,6 +35,8 @@ downstream client
 
 ```text
 oauth-login
+local-app-auth
+user-management
 quota-tracker
 compat-probes
 governance
@@ -68,10 +72,11 @@ HTTP 路由层当前使用 Hono route modules；迁移记录见 `docs/hono-http-
 
 职责：
 
-1. 管理本地客户端凭证。
+1. 管理本地客户端凭证和 `local_client_tokens`。
 2. 把下游客户端映射到 `local_clients` 记录。
-3. 解析客户端默认账号池。
-4. 为审计提供 stable local client id。
+3. 校验 `x-api-key` 或 `Authorization: Bearer <secret>` 中的本地 client secret。
+4. 解析客户端默认账号池。
+5. 为审计提供 stable local client id。
 
 不负责：
 
@@ -82,7 +87,29 @@ HTTP 路由层当前使用 Hono route modules；迁移记录见 `docs/hono-http-
 数据表：
 
 1. `local_clients`
-2. 未来可扩展 `local_client_tokens`
+2. `local_client_tokens`
+
+## 4.1 local-app-auth
+
+职责：
+
+1. 管理本地 admin console 登录用户。
+2. 用 password hash 校验登录，不保存明文密码。
+3. 用 HttpOnly session cookie 保护 `/admin/*` 和 `GET /oauth/authorize`。
+4. 为 `owner`、`admin`、`viewer` 执行基础 RBAC。
+5. 管理用户禁用、改密码和 owner bootstrap。
+
+不负责：
+
+1. 不校验 Claude.ai OAuth token。
+2. 不保护 `/v1/messages` 推理请求。
+3. 不向 Anthropic 发送本地用户身份。
+
+数据表：
+
+1. `app_users`
+2. `password_credentials`
+3. `user_sessions`
 
 ## 5. oauth-login
 

@@ -196,8 +196,9 @@ D2 -> H3
 1. 服务能生成 OAuth authorize URL。
 2. authorize URL 使用 Claude Code 源码确认的 authorize endpoint、client id、scope 和 PKCE 参数。
 3. 登录 state 与 PKCE verifier 存在本地临时状态中。
-4. 不要求手工复制 Claude Code 配置文件。
-5. OAuth 行为能追溯到参考源码、npm 包 probe 或线上实测。
+4. 支持 callback flow 和 Claude Code manual redirect flow；manual flow 使用 `https://platform.claude.com/oauth/code/callback`。
+5. 不要求手工复制 Claude Code 配置文件。
+6. OAuth 行为能追溯到参考源码、npm 包 probe 或线上实测。
 
 状态：已完成。2026-06-22 live smoke 已完成 OAuth authorize URL 生成和真实浏览器授权。
 
@@ -212,6 +213,7 @@ D2 -> H3
 3. token endpoint 错误作为上游 OAuth 错误暴露。
 4. access token 和 refresh token 明文写入 SQLite。
 5. token 记录包含 label、source device、account uuid、scope、expires_at、created_at、updated_at。
+6. manual flow 的粘贴授权码使用 pending login 中保存的 manual redirect URI 换 token。
 
 状态：已完成。2026-06-22 live smoke 已完成真实 callback、token exchange 和明文 token 入库。
 

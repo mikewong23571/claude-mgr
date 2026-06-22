@@ -1,5 +1,17 @@
 export type Locale = 'en' | 'zh'
 
+export type AppUserRole = 'owner' | 'admin' | 'viewer'
+
+export type AuthUser = {
+  id: string
+  username: string
+  displayName: string | null
+  role: AppUserRole
+  enabled: boolean
+  createdAt?: number
+  updatedAt?: number
+}
+
 export type Account = {
   accountUuid: string
   organizationUuid: string
@@ -36,6 +48,16 @@ export type LocalClient = {
   defaultPoolId: string | null
   createdAt: number
   updatedAt: number
+}
+
+export type LocalClientTokenMeta = {
+  id: string
+  clientId: string
+  name: string
+  createdByUserId: string | null
+  createdAt: number
+  lastUsedAt: number | null
+  revokedAt: number | null
 }
 
 export type OAuthTokenMeta = {

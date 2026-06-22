@@ -4,9 +4,14 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { randomUUID } from 'node:crypto'
+import { hashPassword } from '../src/auth/password.js'
+import { createSecret, hashSecret } from '../src/auth/secrets.js'
+import { createSession, sessionCookie } from '../src/auth/session.js'
 import { startServer } from '../src/index.js'
 
 const execFileAsync = promisify(execFile)
+let adminCookie: string | undefined
 
 type Args = {
   db: string
@@ -161,7 +166,19 @@ function parseArgs(argv: string[]): Args {
 }
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init)
+  const parsed = new URL(url)
+  const shouldAttachAdminCookie =
+    adminCookie &&
+    (parsed.pathname.startsWith('/admin/') ||
+      parsed.pathname.startsWith('/oauth/') ||
+      parsed.pathname === '/oauth/authorize')
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      ...(shouldAttachAdminCookie ? { Cookie: adminCookie } : {}),
+      ...(init?.headers ?? {}),
+    },
+  })
   const text = await response.text()
   const body = text ? (JSON.parse(text) as unknown) : null
   if (!response.ok) {
@@ -170,9 +187,54 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+function ensureSmokeAdminSession(
+  store: ReturnType<typeof startServer>['store'],
+): string {
+  const existing = store.findAppUserByUsername('live-smoke-owner')
+  const user =
+    existing ??
+    store.createAppUser({
+      id: randomUUID(),
+      username: 'live-smoke-owner',
+      role: 'owner',
+    })
+  if (!existing) {
+    store.upsertPasswordCredential({
+      userId: user.id,
+      passwordHash: hashPassword(createSecret('cmp')),
+    })
+  }
+  const session = createSession({ store, userId: user.id })
+  return sessionCookie(session.token, session.expiresAt)
+}
+
+function ensureSmokeClientSecret(input: {
+  store: ReturnType<typeof startServer>['store']
+  clientId: string
+}): string {
+  const secret = 'live-smoke-local-client-secret'
+  const tokenHash = hashSecret(secret)
+  const existing = input.store.findLocalClientTokenByHash(tokenHash)
+  if (!existing) {
+    input.store.createLocalClientToken({
+      id: randomUUID(),
+      clientId: input.clientId,
+      name: 'live smoke',
+      tokenHash,
+    })
+  }
+  return secret
+}
+
 async function ensurePool(baseUrl: string, id: string): Promise<void> {
-  const existing = await fetch(`${baseUrl}/admin/pools/${encodeURIComponent(id)}`)
+  const existing = await fetch(`${baseUrl}/admin/pools/${encodeURIComponent(id)}`, {
+    headers: adminCookie ? { Cookie: adminCookie } : undefined,
+  })
   if (existing.ok) return
+  if (existing.status !== 404) {
+    const text = await existing.text()
+    throw new Error(`HTTP ${existing.status} checking pool ${id}: ${text}`)
+  }
   await jsonFetch(`${baseUrl}/admin/pools`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -378,6 +440,7 @@ async function smokeClaudeCodeCliMessages(input: {
   tokenLabel: string
   model: string
   timeoutMs: number
+  clientSecret: string
   store: ReturnType<typeof startServer>['store']
 }): Promise<void> {
   const auditStartCount = (await listAuditEvents(input.baseUrl)).length
@@ -410,7 +473,7 @@ async function smokeClaudeCodeCliMessages(input: {
           HOME: homeDir,
           CLAUDE_CONFIG_DIR: configDir,
           ANTHROPIC_BASE_URL: input.baseUrl,
-          ANTHROPIC_API_KEY: 'local-dummy-key',
+          ANTHROPIC_API_KEY: input.clientSecret,
           ANTHROPIC_CUSTOM_HEADERS: `x-claude-mgr-client-id: ${input.clientId}\nx-claude-mgr-pool-id: ${input.poolId}`,
         },
         timeout: input.timeoutMs,
@@ -518,6 +581,7 @@ async function main(): Promise<void> {
     debugTrafficDir: args.debugTrafficDir,
   })
   const baseUrl = runtime.url
+  adminCookie = ensureSmokeAdminSession(runtime.store)
   console.log(`claude-mgr live smoke server listening on ${baseUrl}`)
   if (args.debugTrafficDir) {
     console.log(`Debug traffic JSONL enabled under ${args.debugTrafficDir}`)
@@ -542,6 +606,10 @@ async function main(): Promise<void> {
       baseUrl,
       id: args.client,
       poolId: args.pool,
+    })
+    const clientSecret = ensureSmokeClientSecret({
+      store: runtime.store,
+      clientId: args.client,
     })
 
     if (!(await tokenExists(baseUrl, args.label))) {
@@ -586,6 +654,7 @@ async function main(): Promise<void> {
         tokenLabel: args.label,
         model: args.model!,
         timeoutMs: args.timeoutMs,
+        clientSecret,
         store: runtime.store,
       })
     } else {

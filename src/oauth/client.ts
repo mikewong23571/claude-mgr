@@ -110,6 +110,10 @@ export class OAuthClient {
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
   }
 
+  manualRedirectUri(): string {
+    return this.config.manualRedirectUrl
+  }
+
   buildAuthorizeUrl(input: {
     state: string
     codeVerifier: string
@@ -198,6 +202,7 @@ export class OAuthClient {
     store: SqliteStore
     label: string
     sourceDevice: string
+    ownerUserId?: string | null
     token: TokenExchangeResponse
     profile?: OAuthProfileResponse
   }): Promise<{ account: ClaudeAccount; token: OAuthToken }> {
@@ -223,6 +228,7 @@ export class OAuthClient {
       upstreamClientIdentityId:
         existingAccount?.upstreamClientIdentityId ??
         `acct-${accountUuid}-${randomUUID()}`,
+      ownerUserId: input.ownerUserId ?? existingAccount?.ownerUserId ?? null,
       subscriptionType: subscriptionType(profile),
       rateLimitTier: profile.organization?.rate_limit_tier,
     })
@@ -230,6 +236,7 @@ export class OAuthClient {
       label: input.label,
       sourceDevice: input.sourceDevice,
       accountUuid,
+      ownerUserId: input.ownerUserId ?? account.ownerUserId ?? null,
       scopes: parseScopes(input.token.scope),
       accessToken: input.token.access_token,
       refreshToken: input.token.refresh_token ?? null,
