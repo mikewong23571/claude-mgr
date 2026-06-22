@@ -1,0 +1,204 @@
+:root {
+  /* Spacing scale */
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  /* Elevation — soft, layered shadows instead of harsh borders */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.04);
+
+  --border-subtle: #eef0f4;
+  --surface: #ffffff;
+}
+
+body {
+  margin: 0;
+  background: #f3f4f7;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+/* ---------- Header ---------- */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  height: 64px;
+  padding: 0 var(--space-6);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.header-title {
+  margin: 0 !important;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, #4f46e5, #7c6df2);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* ---------- Sidebar ---------- */
+.app-sidebar {
+  position: sticky;
+  top: 64px;
+  height: calc(100vh - 64px);
+  overflow: auto;
+  background: var(--surface) !important;
+  border-right: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+}
+
+.app-sidebar .ant-menu {
+  border-inline-end: none !important;
+}
+
+.app-sidebar .ant-menu-item-group-title {
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding-inline: 20px;
+  margin-top: var(--space-2);
+}
+
+/* Section dividers in the nav — subtle, inset from the edges */
+.app-sidebar .ant-menu-item-divider {
+  margin: var(--space-3) 16px;
+  border-color: var(--border-subtle);
+}
+
+/* Give the active item a defined boundary, not just a fill */
+.app-sidebar .ant-menu-item-selected {
+  border: 1px solid #dfe1fb;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(79, 70, 229, 0.08);
+}
+
+/* ---------- Content ---------- */
+.app-content {
+  padding: var(--space-6);
+  max-width: 1320px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+
+.toolbar .ant-typography {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.stack {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* ---------- Cards: elevation over borders ---------- */
+.app-content .ant-card {
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.app-content .ant-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* Statistic cards read as a metric strip */
+.ant-statistic-title {
+  color: #5a6275;
+  margin-bottom: 4px;
+}
+
+.ant-statistic-content {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Tables ---------- */
+.ant-table-wrapper .ant-table {
+  border-radius: 10px;
+}
+
+.ant-table-thead > tr > th {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ant-table-cell {
+  white-space: nowrap;
+}
+
+.code-block {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  background: #fafbfc !important;
+}
+
+.table-actions {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.ant-card-head-title,
+.ant-statistic-title,
+.ant-typography {
+  letter-spacing: 0;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .app-header {
+    height: auto;
+    min-height: 64px;
+    padding: var(--space-3) var(--space-4);
+    align-items: center;
+  }
+
+  .app-sidebar {
+    top: 0;
+    height: 100vh;
+  }
+
+  .app-content {
+    padding: var(--space-4);
+  }
+}

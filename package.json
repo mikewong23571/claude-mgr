@@ -1,0 +1,39 @@
+{
+  "name": "claude-mgr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal Claude Code OAuth gateway for auditable local client access.",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "dev:frontend": "vite --host 127.0.0.1",
+    "build:frontend": "vite build",
+    "smoke:live": "tsx scripts/live-smoke.ts",
+    "probe:claude-code": "node scripts/probe-claude-code-package.mjs",
+    "typecheck": "tsc --noEmit && tsc -p frontend/tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.2.5",
+    "antd": "^6.4.4",
+    "hono": "^4.12.26",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@anthropic-ai/claude-code": "^2.1.185",
+    "@anthropic-ai/sdk": "^0.69.0",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.0.15"
+  }
+}

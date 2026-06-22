@@ -1,0 +1,3 @@
+[submodule "repos/claude-code-analysis"]
+	path = repos/claude-code-analysis
+	url = https://github.com/liuup/claude-code-analysis.git
